@@ -1,5 +1,14 @@
 
 function out = keepLargestRegion( in )
+  % out = keepLargestRegion( in )
+  %
+  % Isolates the largest continuous region
+  %
+  % Inputs:
+  % in - a binary 2D array with values of 1 or 0
+  %
+  % Outputs:
+  % out - a binary 2D array with values of 1 or 0
 
   [ labels, nLabels ] = bwlabel( in );
   nPerLabel = zeros( nLabels, 1 );
