@@ -1,5 +1,5 @@
 
-function [ recon, sMaps ] = reconNonReconSupport_ankle( support, kData )
+function [ recon, sMaps ] = reconNonRectSupport_ankle( support, kData )
   % [ recon, sMaps ] = reconNonReconSupport_ankle( support, kData )
   %
   % Inputs:
