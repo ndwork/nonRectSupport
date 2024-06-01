@@ -1,5 +1,5 @@
 
-function recon = reconNonRectSupport( support, kDataEvenCols, kDataOddCols )
+function recon = reconNonRectSupport( support, kDataEvenCols, kDataOddCols, varargin )
   % recon = reconNonRectSupport( support, kDataEvenCols, kDataOddCols )
   %
   % Inputs:
@@ -21,7 +21,6 @@ function recon = reconNonRectSupport( support, kDataEvenCols, kDataOddCols )
 
   nRows = size( support, 1 );
   nCols = size( support, 2 );
-  nCoils = size( kDataEvenCols, 3 );
 
   sFull = size( kDataEvenCols );
   sFull(2) = sFull(2) * 2;
@@ -29,37 +28,47 @@ function recon = reconNonRectSupport( support, kDataEvenCols, kDataOddCols )
   innerRows = 1 - outerRows;
   nInnerRows = sum( innerRows );
 
-  kDataEvenZF = zeros( sFull );  % ZF - zero filled
-  kDataEvenZF(:,2:2:end,:) = kDataEvenCols;
-  reconEvenCols = fftshift2( ifft2( ifftshift2( kDataEvenZF ) ) );
-
-  outerSupport = bsxfun( @times, support, outerRows );
-  reconsOuter = 2 * bsxfun( @times, reconEvenCols, outerSupport );
+  %-- Find the relevant trajectories
 
   kxFull = size2fftCoordinates( nCols );
   kxInnerMissing = kxFull(2:2:end);
   kyInner = size2fftCoordinates( nInnerRows );
   [ kxInnerMissingMesh, kyInnerMissingMesh ] = meshgrid( kxInnerMissing, kyInner );
   trajMissing = [ kyInnerMissingMesh(:) kxInnerMissingMesh(:) ];
-  nxInnerMissing = numel( kxInnerMissing );
-  kMissing = iGrid_2D( reconEvenCols, trajMissing );
-  kMissing = reshape( kMissing, [ nInnerRows nxInnerMissing nCoils ] );
-
-  kInner = zeros( nInnerRows, nCols, nCoils );
-  kInner( :, 1:2:end ) = kDataOddCols;
-  kInner( :, 2:2:end ) = kMissing;
-
-  % Now that we have kInner, we subtract away the outer portion
 
   [ kxInnerMesh, kyInnerMesh ] = meshgrid( kxFull, kyInner );
   trajInner = [ kyInnerMesh(:) kxInnerMesh(:) ];
 
-  tmp = iGrid_2D( reconsOuter, trajInner );
-  kRemaining = kInner - reshape( tmp, [ nInnerRows nCols nCoils ] );
 
-  reconsInner = grid_2D( reshape( kRemaining, [], nCoils ), trajInner, [ nRows nCols ] );
+  %-- Perform the reconstruction
+
+  % 1) Reconstruct with even columns; this results in aliased images
+  kDataEvenZF = zeros( sFull );  % ZF - zero filled
+  kDataEvenZF(:,2:2:end,:) = kDataEvenCols;
+  reconEvenCols = fftshift2( ifft2( ifftshift2( kDataEvenZF ) ) );
+
+  % 2) Interpolate aliased images onto odd column trajectory with nInnerRows in each column
+  kMissing = iGrid_2D( reconEvenCols, trajMissing );
+  nxInnerMissing = numel( kxInnerMissing );
+  kMissing = reshape( kMissing, [ nInnerRows nxInnerMissing ] );
+
+  kInner = zeros( nInnerRows, nCols );
+  kInner( :, 1:2:end ) = kDataOddCols;
+  kInner( :, 2:2:end ) = kMissing;
+
+  % 3) Reconstruct outer image
+  outerSupport = bsxfun( @times, support, outerRows );
+  reconsOuter = 2 * bsxfun( @times, reconEvenCols, outerSupport );
+
+  % 4) Subtract outer image from inner trajectory
+  tmp = iGrid_2D( reconsOuter, trajInner );
+  kRemaining = kInner - reshape( tmp, [ nInnerRows nCols ] );
+
+  % 5) Reconstruct the inner image
+  reconsInner = grid_2D( kRemaining(:), trajInner, [ nRows nCols ] );
   reconsInner = bsxfun( @times, reconsInner, innerRows );
 
+  % 6) Sum to create the whole image
   recon = reconsInner + reconsOuter;
 end
 
