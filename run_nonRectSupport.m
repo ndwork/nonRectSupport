@@ -2,17 +2,32 @@
 function run_nonRectSupport
   close all; clear; rng(1);
 
-  datacase = 5;
+  datacase = 3;
   showScale = 3;
+  mbr = true;
 
-  [ supports, kDataEvenCols, kDataOddCols, reconFull ] = loadDatacase( datacase );
-%load( 'junk.mat', 'supports', 'kDataEvenCols', 'kDataOddCols', 'reconFull' );
+  %[ supports, kDataEvenCols, kDataOddCols, reconFull, sMaps ] = loadDatacase( datacase );
+%save( 'junk.mat', 'supports', 'kDataEvenCols', 'kDataOddCols', 'reconFull', 'sMaps' );
+load( 'junk.mat', 'supports', 'kDataEvenCols', 'kDataOddCols', 'reconFull', 'sMaps' );
 
   tic;
-  if datacase == 0
-    recon = reconNonRectSupport_ankle( kData, supports );
+  if mbr == true
+    support = max( supports, [], 3 );
+    [ trajOdd, trajEven ] = trajFromSupports( supports );
+    kTraj = [ trajOdd; trajEven; ];
+    nCoils = size( kDataOddCols, 3 );
+    kData = [ reshape( kDataOddCols, [], nCoils ); reshape( kDataEvenCols, [], nCoils ); ];
+    if numel( sMaps ) == 0
+      sImg = size( supports, [1 2] );
+      sMaps = mri_makeSensitivityMaps( kData, 'sImg', sImg, 'traj', kTraj );
+    end
+    recon = mri_reconModelBased( kData, sMaps, 'traj', kTraj, 'support', support );
   else
-    recon = reconNonRectSupports( supports, kDataEvenCols, kDataOddCols );
+    if datacase == 0
+      recon = reconNonRectSupport_ankle( kData, supports );
+    else
+      recon = reconNonRectSupports( supports, kDataEvenCols, kDataOddCols );
+    end
   end
   timeTaken = toc;
 
