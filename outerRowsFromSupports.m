@@ -1,10 +1,24 @@
 
-function outerRows = outerRowsFromSupports( supports )
+function [ outerRows, innerMask ] = outerRowsFromSupports( supports )
+  % [ outerRows, innerMask ] = outerRowsFromSupports( supports )
+  %
+  % This is a supporting function for reconNonRectSupports.
+  %
+  % Written by Nicholas Dwork, Copyright 2024
+  %
+  % This software is offered under the GNU General Public License 3.0.  It
+  % is offered without any warranty expressed or implied, including the
+  % implied warranties of merchantability or fitness for a particular
+  % purpose.
 
   nRows = size( supports, 1 );
   nCols = size( supports, 2 );
   shiftedSupports = circshift( supports, floor(nCols/2), 2 );
   summedSupports = supports + shiftedSupports;
+
+  if nargout > 1
+    innerMask = ( summedSupports == 1 ) .* supports;
+  end
 
   nCoils = size( supports, 3 );
   outerRows = zeros( nRows, nCoils );
