@@ -1,5 +1,5 @@
 
-function [ support, kDataEvenCols, kDataOddCols, reconFull ] = loadDatacase( datacase )
+function [ support, kDataEvenCols, kDataOddCols, reconFull, sMaps ] = loadDatacase( datacase )
 
   dataDir = '/Volumes/NDWORK128GB/';
   if ~exist( dataDir, 'dir' )
@@ -17,6 +17,7 @@ function [ support, kDataEvenCols, kDataOddCols, reconFull ] = loadDatacase( dat
   if ~exist( dataDir, 'dir' ), error( 'dataDir not found' ); end
 
   reconFull = [];
+  sMaps = [];
 
   switch datacase
 
@@ -26,10 +27,8 @@ function [ support, kDataEvenCols, kDataOddCols, reconFull ] = loadDatacase( dat
       kDataFull = squeeze( kDataFull );
       kDataFull = ifft( ifftshift( kDataFull, 3 ), [], 3 );
       kDataFull = squeeze( kDataFull(:,:,50,:) );
-
-      for coilIndx = 1 : size( kDataFull, 3 )
-        kDataFull(:,:,coilIndx) = rot90( kDataFull(:,:,coilIndx), -1 );
-      end
+      kDataFull = rot90( kDataFull, -1 );
+      kDataFull = kDataFull / max( abs( kDataFull(:) ) );
 
       M = size( kDataFull, 1 );
       N = size( kDataFull, 2 );
@@ -41,6 +40,7 @@ function [ support, kDataEvenCols, kDataOddCols, reconFull ] = loadDatacase( dat
       kData = zeros( size( kDataFull ) );
       kData(2:2:end,:,:) = kDataFull(2:2:end,:,:);
       kData(:,2:2:end,:) = kDataFull(:,2:2:end,:);
+
       recon = reconNonRectSupport_ankle( support, kData );
       error( 'This is the special algorithm for the ankle.' );
 
@@ -51,8 +51,11 @@ function [ support, kDataEvenCols, kDataOddCols, reconFull ] = loadDatacase( dat
       kDataFull = ifft( ifftshift( kDataFull, 3 ), [], 3 );
       kDataFull = squeeze( kDataFull(:,:,50,:) );
       kDataFull = rot90( kDataFull, -1 );
+      kDataFull = kDataFull / max( abs( kDataFull(:) ) );
 
       %reconFull = mri_reconRoemer( mri_reconIFFT( kDataFull, 'multiSlice', true ) );
+
+      sMaps = mri_makeSensitivityMaps( kDataFull );
 
       M = size( kDataFull, 1 );
       N = size( kDataFull, 2 );
@@ -79,14 +82,13 @@ function [ support, kDataEvenCols, kDataOddCols, reconFull ] = loadDatacase( dat
       end
       kDataOddCols = cell2mat( kDataOddCols );
       kDataOddCols = kDataOddCols(:,1:2:end,:);
-      disp( 'Data loaded for case 1' );
 
     case 2
       % ESPIRIT Brain
       load( [ dataDir, './espiritData/brain_8ch.mat' ], 'DATA' );
       kDataFull = squeeze( permute( DATA, [1 2 4 3] ) );
+      kDataFull = kDataFull / max( abs( kDataFull(:) ) );
 
-      M = size( kDataFull, 1 );
       N = size( kDataFull, 2 );
       nCoils = size( kDataFull, 3 );
 
@@ -100,24 +102,20 @@ function [ support, kDataEvenCols, kDataOddCols, reconFull ] = loadDatacase( dat
       support = imerode( support, strel( "disk", 4 ) );
 
       kDataEvenCols = kDataFull(:,2:2:end,:);
-      kxFull = size2fftCoordinates( N );
-
-      outerRows = outerRowsFromSupport( support );
-      innerRows = 1 - outerRows;
-      nInnerRows = sum( innerRows );
+      %kxFull = size2fftCoordinates( N );
 
       coilReconsFull = fftshift2( ifft2( ifftshift2( kDataFull ) ) );
 
-      kyOdd = size2fftCoordinates( nInnerRows );
-      [ kxOddMesh, kyOddMesh ] = meshgrid( kxFull, kyOdd );
-      trajOdd = [ kyOddMesh(:) kxOddMesh(:) ];
+      [ trajOdd, trajEven, outerRows ] = trajFromSupports( support );   %#ok<ASGLU>
+      innerRows = 1 - outerRows;
+      nInnerRows = sum( innerRows );
+
       kDataOddCols = cell( 1, 1, nCoils );
       parfor coilIndx = 1 : nCoils
         tmp = iGrid_2D( coilReconsFull(:,:,coilIndx), trajOdd );
-        kDataOddCols{ 1, 1, coilIndx } = reshape( tmp, [ nInnerRows, N ] );
+        kDataOddCols{ 1, 1, coilIndx } = reshape( tmp, [ nInnerRows, N/2 ] );
       end
       kDataOddCols = cell2mat( kDataOddCols );
-      kDataOddCols = kDataOddCols(:,1:2:end,:);
 
     case 3
       % UCSF Brain (my brain -Nicholas Dwork)
@@ -129,12 +127,14 @@ function [ support, kDataEvenCols, kDataOddCols, reconFull ] = loadDatacase( dat
       reconFullCoils = mri_reconIFFT( kDataFull, 'multiSlice', true );
       reconFullCoils = reconFullCoils( 34:222, 53:210, : );
       kDataFull = fftshift2( fft2( ifftshift2( reconFullCoils ) ) );
-      M = size( kDataFull, 1 );
+      kDataFull = kDataFull / max( abs( kDataFull(:) ) );
+
       N = size( kDataFull, 2 );
       nCoils = size( kDataFull, 3 );
 
+      reconFullCoils = mri_reconIFFT( kDataFull, 'multiSlice', true );
       reconFull = abs( mri_reconRoemer( reconFullCoils ) );
-      noise = reconFull(1:5,1:5);
+      noise = reconFull( 1:5, 1:5 );
       support = reconFull > ( mean( noise(:) ) + 5 * std( noise(:) ) );
 
       support = imerode( support, strel( "disk", 2 ) );
@@ -142,22 +142,14 @@ function [ support, kDataEvenCols, kDataOddCols, reconFull ] = loadDatacase( dat
       support = imerode( support, strel( "disk", 4 ) );
 
       kDataEvenCols = kDataFull(:,2:2:end,:);
-      kxFull = size2fftCoordinates( N );
 
-      outerRows = outerRowsFromSupport( support );
+      [ trajOdd, trajEven, outerRows ] = trajFromSupports( support );   %#ok<ASGLU>
       innerRows = 1 - outerRows;
       nInnerRows = sum( innerRows );
 
-      kyOdd = size2fftCoordinates( nInnerRows );
-      [ kxOddMesh, kyOddMesh ] = meshgrid( kxFull, kyOdd );
-      trajOdd = [ kyOddMesh(:) kxOddMesh(:) ];
-      kDataOddCols = cell( 1, 1, nCoils );
-      parfor coilIndx = 1 : nCoils
-        tmp = iGrid_2D( reconFullCoils(:,:,coilIndx), trajOdd );
-        kDataOddCols{ 1, 1, coilIndx } = reshape( tmp, [ nInnerRows, N ] );
-      end
-      kDataOddCols = cell2mat( kDataOddCols );
-      kDataOddCols = kDataOddCols(:,1:2:end,:);
+      kDataOddCols = iGrid_2D( reconFullCoils, trajOdd );
+      kDataOddCols = reshape( kDataOddCols, nInnerRows, N/2, nCoils );
+
 
     case 4
       %pineapple
@@ -215,8 +207,6 @@ function [ support, kDataEvenCols, kDataOddCols, reconFull ] = loadDatacase( dat
 
       noise = coilReconsFull( 1 : 50, end-50 : end, : );
 
-      nCoils = size( kDataFull, 3 );
-
       % Come up with independent supports for each coil
       supports = zeros( size( coilReconsFull ) );
 
@@ -271,6 +261,9 @@ function [ support, kDataEvenCols, kDataOddCols, reconFull ] = loadDatacase( dat
       coilSupport( labels == 4 ) = 1;
       supports(:,:,6) = coilSupport;
 
+      kDataFull = kDataFull / max( abs( kDataFull(:) ) );
+      coilReconsFull = mri_reconIFFT( kDataFull, 'multiSlice', true );
+
       nCoils = size( kDataFull, 3 );
       kDataEvenCols = kDataFull(:,2:2:end,:);
 
@@ -293,6 +286,8 @@ function [ support, kDataEvenCols, kDataOddCols, reconFull ] = loadDatacase( dat
       kDataOddCols = kDataOddCols(:,1:2:end,:);
 
       support = supports;
+
+      sMaps = mri_makeSensitivityMaps( kDataFull );
 
     otherwise
       error( 'This datacase doesn''t exist' );
