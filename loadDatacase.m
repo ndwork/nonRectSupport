@@ -129,6 +129,8 @@ function [ support, kDataEvenCols, kDataOddCols, reconFull, sMaps ] = loadDataca
       kDataFull = fftshift2( fft2( ifftshift2( reconFullCoils ) ) );
       kDataFull = kDataFull / max( abs( kDataFull(:) ) );
 
+      sMaps = mri_makeSensitivityMaps( kDataFull );
+
       N = size( kDataFull, 2 );
       nCoils = size( kDataFull, 3 );
 
