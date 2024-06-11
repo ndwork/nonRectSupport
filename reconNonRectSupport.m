@@ -1,5 +1,5 @@
 
-function recon = reconNonRectSupport( support, kDataEvenCols, kDataOddCols, varargin )
+function recon = reconNonRectSupport( support, kDataEvenCols, kDataOddCols )
   % recon = reconNonRectSupport( support, kDataEvenCols, kDataOddCols )
   %
   % Inputs:
@@ -21,54 +21,42 @@ function recon = reconNonRectSupport( support, kDataEvenCols, kDataOddCols, vara
 
   nRows = size( support, 1 );
   nCols = size( support, 2 );
+  nCoils = size( kDataEvenCols, 3 );
 
-  sFull = size( kDataEvenCols );
-  sFull(2) = sFull(2) * 2;
-  outerRows = outerRowsFromSupport( support );
-  innerRows = 1 - outerRows;
-  nInnerRows = sum( innerRows );
-
-  %-- Find the relevant trajectories
-
-  kxFull = size2fftCoordinates( nCols );
-  kxInnerMissing = kxFull(2:2:end);
-  kyInner = size2fftCoordinates( nInnerRows );
-  [ kxInnerMissingMesh, kyInnerMissingMesh ] = meshgrid( kxInnerMissing, kyInner );
-  trajMissing = [ kyInnerMissingMesh(:) kxInnerMissingMesh(:) ];
-
-  [ kxInnerMesh, kyInnerMesh ] = meshgrid( kxFull, kyInner );
-  trajInner = [ kyInnerMesh(:) kxInnerMesh(:) ];
-
+  [ trajOdd, trajEven, outerRows ] = trajFromSupports( support );
+  nEven = size( trajEven, 1 );
 
   %-- Perform the reconstruction
 
   % 1) Reconstruct with even columns; this results in aliased images
-  kDataEvenZF = zeros( sFull );  % ZF - zero filled
-  kDataEvenZF(:,2:2:end,:) = kDataEvenCols;
+  kDataEvenZF = zeros( [ nRows nCols nCoils ] );  % ZF - zero filled
+  kDataEvenZF(:,2:2:end,:) = reshape( kDataEvenCols, size( kDataEvenZF(:,2:2:end,:) ) );
   reconEvenCols = fftshift2( ifft2( ifftshift2( kDataEvenZF ) ) );
 
-  % 2) Interpolate aliased images onto odd column trajectory with nInnerRows in each column
-  kMissing = iGrid_2D( reconEvenCols, trajMissing );
-  nxInnerMissing = numel( kxInnerMissing );
-  kMissing = reshape( kMissing, [ nInnerRows nxInnerMissing ] );
-
-  kInner = zeros( nInnerRows, nCols );
-  kInner( :, 1:2:end ) = kDataOddCols;
-  kInner( :, 2:2:end ) = kMissing;
-
-  % 3) Reconstruct outer image
+  % 2) Reconstruct outer image
   outerSupport = bsxfun( @times, support, outerRows );
   reconsOuter = 2 * bsxfun( @times, reconEvenCols, outerSupport );
 
-  % 4) Subtract outer image from inner trajectory
-  tmp = iGrid_2D( reconsOuter, trajInner );
-  kRemaining = kInner - reshape( tmp, [ nInnerRows nCols ] );
+  % 3) Interpolate aliased images onto odd column trajectory with nInnerRows in each column
+  kOuter = iGrid_2D( reconsOuter, [ trajEven; trajOdd; ] );
+  kOuterEven = reshape( kOuter( 1 : nEven, : ), size( kDataEvenCols ) );
+  kOuterOdd = reshape( kOuter( nEven + 1 : end, : ), size( kDataOddCols ) );
 
-  % 5) Reconstruct the inner image
-  reconsInner = grid_2D( kRemaining(:), trajInner, [ nRows nCols ] );
-  reconsInner = bsxfun( @times, reconsInner, innerRows );
+  % 4) Subtract outer Fourier values from full Fourier values
+  kRemainingEven = reshape( kDataEvenCols - kOuterEven, [], nCoils );
+  kRemainingOdd = reshape( kDataOddCols - kOuterOdd, [], nCoils );
+
+  % 5) Reconstruct the inner region
+  reconsInner = grid_2D( [ kRemainingEven; kRemainingOdd; ], [ trajEven; trajOdd; ], [ nRows nCols ] );
+  reconsInner = bsxfun( @times, reconsInner, 1 - outerRows );
 
   % 6) Sum to create the whole image
-  recon = reconsInner + reconsOuter;
+  recons = reconsInner + reconsOuter;
+
+  if nCoils > 1
+    recon = mri_reconRoemer( recons ) .* support;
+  else
+    recon = recons .* support;
+  end
 end
 
