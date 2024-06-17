@@ -22,11 +22,20 @@ function recon = reconNonRectSupport( support, kDataEvenCols, kDataOddCols )
   nRows = size( support, 1 );
   nCols = size( support, 2 );
   nCoils = size( kDataEvenCols, 3 );
+  kxFull = size2fftCoordinates( nCols );
 
   [ trajOdd, trajEven, outerRows ] = trajFromSupports( support );
   nEven = size( trajEven, 1 );
+  nOdd = size( trajOdd, 1 );
 
   %-- Perform the reconstruction
+
+  % Create the trajectory of the inner grid
+  nInner = sum( 1 - outerRows );
+  kInner = size2fftCoordinates([ nInner nCols ]);
+  kyInner = kInner{1};  kxInner = kInner{2};
+  [ kxInnerMesh, kyInnerMesh ] = meshgrid( kxInner, kyInner );
+  trajInner = [ kyInnerMesh(:) kxInnerMesh(:) ];
 
   % 1) Reconstruct with even columns; this results in aliased images
   kDataEvenZF = zeros( [ nRows nCols nCoils ] );  % ZF - zero filled
@@ -37,17 +46,22 @@ function recon = reconNonRectSupport( support, kDataEvenCols, kDataOddCols )
   outerSupport = bsxfun( @times, support, outerRows );
   reconsOuter = 2 * bsxfun( @times, reconEvenCols, outerSupport );
 
-  % 3) Interpolate aliased images onto odd column trajectory with nInnerRows in each column
-  kOuter = iGrid_2D( reconsOuter, [ trajEven; trajOdd; ] );
-  kOuterEven = reshape( kOuter( 1 : nEven, : ), size( kDataEvenCols ) );
-  kOuterOdd = reshape( kOuter( nEven + 1 : end, : ), size( kDataOddCols ) );
+  % ) Interpolate onto the inner grid
+  kInner = zeros( nInner, nCols, nCoils );
+  kInner( :, 1:2:end, : ) = kDataOddCols;
+  [ kxMissing, kyMissing ] = meshgrid( kxFull(2:2:end), kyInner );  % missing from inner grid
+  trajMissing = [ kyMissing(:) kxMissing(:) ];
+  kMissing = iGrid_2D( reconEvenCols, trajMissing );
+  kInner( :, 2:2:end, : ) = reshape( kMissing, nInner, floor(nCols/2), nCoils );
 
   % 4) Subtract outer Fourier values from full Fourier values
-  kRemainingEven = reshape( kDataEvenCols - kOuterEven, [], nCoils );
-  kRemainingOdd = reshape( kDataOddCols - kOuterOdd, [], nCoils );
+  kOuter = iGrid_2D( reconsOuter, trajInner );
+  kOuter = reshape( kOuter, nInner, nCols, nCoils );
+  kRemaining = kInner - kOuter;
 
   % 5) Reconstruct the inner region
-  reconsInner = grid_2D( [ kRemainingEven; kRemainingOdd; ], [ trajEven; trajOdd; ], [ nRows nCols ] );
+  reconsInner = grid_2D( reshape( kRemaining, [], nCoils ), trajInner, [ nRows nCols ] );
+  %reconsInner = grid_2D( [ kRemainingEven; kRemainingOdd; ], [ trajEven; trajOdd; ], [ nRows nCols ] );
   reconsInner = bsxfun( @times, reconsInner, 1 - outerRows );
 
   % 6) Sum to create the whole image
